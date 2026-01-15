@@ -15,9 +15,7 @@ dotenv.config();
 
 const app = express();
 
-connectDB();
-
-// CORS configuration - MUST be first middleware
+// CORS configuration - MUST be before connectDB and everything else
 const allowedOrigins = [
   "https://vertex-frontend-app.vercel.app",
   "http://localhost:3000",
@@ -25,55 +23,72 @@ const allowedOrigins = [
   "http://localhost:5174",
 ];
 
-// Normalize origin for comparison (remove trailing slash, lowercase)
-const normalizeOrigin = (origin) => {
-  if (!origin) return null;
-  return origin.toLowerCase().replace(/\/$/, "");
-};
-
-// CORS middleware function - handles all CORS headers
-const corsMiddleware = (req, res, next) => {
+// ABSOLUTE FIRST: Handle ALL OPTIONS requests immediately
+app.options("*", (req, res) => {
   const origin = req.headers.origin;
-  const normalizedOrigin = normalizeOrigin(origin);
-  const normalizedAllowedOrigins = allowedOrigins.map(normalizeOrigin);
+  console.log("OPTIONS request from origin:", origin);
   
-  // Check if origin is allowed (case-insensitive, handles trailing slashes)
-  // Always allow if no origin (server-to-server) or if in allowed list
-  const isAllowed = !origin || 
-                    normalizedAllowedOrigins.includes(normalizedOrigin) || 
-                    process.env.NODE_ENV !== "production";
-  
-  // CRITICAL: Always set Access-Control-Allow-Origin if origin is present and allowed
-  // This is required for CORS to work
   if (origin) {
-    if (isAllowed) {
-      res.setHeader("Access-Control-Allow-Origin", origin);
-    } else {
-      // Even if not explicitly allowed, allow it for debugging
-      // Remove this in production after confirming it works
-      res.setHeader("Access-Control-Allow-Origin", origin);
-    }
+    res.setHeader("Access-Control-Allow-Origin", origin);
   }
+  res.setHeader("Access-Control-Allow-Credentials", "true");
+  res.setHeader("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS, PATCH");
+  res.setHeader("Access-Control-Allow-Headers", "Content-Type, Authorization, X-Requested-With");
+  res.setHeader("Access-Control-Max-Age", "86400");
+  return res.status(200).end();
+});
+
+// Use cors package with explicit configuration
+app.use(cors({
+  origin: (origin, callback) => {
+    // Allow requests with no origin (mobile apps, Postman, etc.)
+    if (!origin) {
+      return callback(null, true);
+    }
+    
+    // Always allow the frontend origin
+    if (allowedOrigins.includes(origin)) {
+      return callback(null, true);
+    }
+    
+    // In development, allow all
+    if (process.env.NODE_ENV !== "production") {
+      return callback(null, true);
+    }
+    
+    // In production, still allow for now to ensure it works
+    console.log("CORS: Allowing origin:", origin);
+    return callback(null, true);
+  },
+  credentials: true,
+  methods: ["GET", "POST", "PUT", "DELETE", "OPTIONS", "PATCH"],
+  allowedHeaders: ["Content-Type", "Authorization", "X-Requested-With"],
+  exposedHeaders: ["Authorization"],
+  optionsSuccessStatus: 200,
+  maxAge: 86400,
+}));
+
+// Additional CORS middleware as backup - runs on every request
+app.use((req, res, next) => {
+  const origin = req.headers.origin;
   
-  // CRITICAL: Always set these headers for ALL requests (including preflight)
+  if (origin) {
+    res.setHeader("Access-Control-Allow-Origin", origin);
+  }
   res.setHeader("Access-Control-Allow-Credentials", "true");
   res.setHeader("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS, PATCH");
   res.setHeader("Access-Control-Allow-Headers", "Content-Type, Authorization, X-Requested-With");
   res.setHeader("Access-Control-Expose-Headers", "Authorization");
-  res.setHeader("Access-Control-Max-Age", "86400");
   
-  // CRITICAL: Handle preflight OPTIONS requests - MUST return early with 200
-  // This is what the browser sends before the actual request
+  // Handle OPTIONS again as backup
   if (req.method === "OPTIONS") {
     return res.status(200).end();
   }
   
   next();
-};
+});
 
-// Apply CORS middleware FIRST - before everything else
-// This MUST be the very first middleware
-app.use(corsMiddleware);
+connectDB();
 
 app.use(express.json({ limit: "10mb" }));
 app.use(express.urlencoded({ limit: "10mb", extended: true }));
@@ -184,6 +199,27 @@ const swaggerOptions = {
 const swaggerSpec = swaggerJsdoc(swaggerOptions);
 app.use("/api-docs", swaggerUi.serve, swaggerUi.setup(swaggerSpec));
 
+// Explicit OPTIONS handlers for all API routes
+const handleOptions = (req, res) => {
+  const origin = req.headers.origin;
+  if (origin) {
+    res.setHeader("Access-Control-Allow-Origin", origin);
+  }
+  res.setHeader("Access-Control-Allow-Credentials", "true");
+  res.setHeader("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS, PATCH");
+  res.setHeader("Access-Control-Allow-Headers", "Content-Type, Authorization, X-Requested-With");
+  res.status(200).end();
+};
+
+app.options("/api/auth", handleOptions);
+app.options("/api/auth/*", handleOptions);
+app.options("/api/entities", handleOptions);
+app.options("/api/entities/*", handleOptions);
+app.options("/api/analytics", handleOptions);
+app.options("/api/analytics/*", handleOptions);
+app.options("/api/insights", handleOptions);
+app.options("/api/insights/*", handleOptions);
+
 app.use("/api/auth", authRoutes);
 app.use("/api/entities", entityRoutes);
 app.use("/api/analytics", analyticsRoutes);
@@ -194,6 +230,13 @@ app.get("/health", (req, res) => {
 });
 
 app.use((req, res) => {
+  // Ensure CORS headers on 404 responses
+  const origin = req.headers.origin;
+  if (origin) {
+    res.setHeader("Access-Control-Allow-Origin", origin);
+  }
+  res.setHeader("Access-Control-Allow-Credentials", "true");
+  
   res.status(404).json({
     success: false,
     error: "Endpoint not found",
