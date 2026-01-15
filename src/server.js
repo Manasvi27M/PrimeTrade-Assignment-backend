@@ -17,45 +17,39 @@ const app = express();
 
 connectDB();
 
-// CORS configuration - allow multiple frontend origins
+// CORS configuration
 const allowedOrigins = [
-  process.env.FRONTEND_URL,
-  process.env.FRONTEND_URL_ALT,
+  "https://primetrade-assignment-frontend-theta.vercel.app",
   "http://localhost:3000",
-  "http://localhost:3001",
-].filter(Boolean); // Remove undefined/null values
+  "http://localhost:5173",
+  "http://localhost:5174",
+];
 
 const corsOptions = {
-  origin: (origin, callback) => {
-    // Allow requests with no origin (mobile apps, curl requests)
-    if (!origin || allowedOrigins.includes(origin)) {
+  origin: function (origin, callback) {
+    // Allow requests with no origin (like mobile apps or curl requests)
+    if (!origin) return callback(null, true);
+    
+    // Allow the origin if it's in the allowed list or if in development
+    if (allowedOrigins.includes(origin) || process.env.NODE_ENV !== "production") {
       callback(null, true);
     } else {
-      console.warn(`CORS blocked request from origin: ${origin}`);
-      callback(new Error("CORS policy violation"));
+      callback(new Error("Not allowed by CORS"));
     }
   },
   credentials: true,
   methods: ["GET", "POST", "PUT", "DELETE", "OPTIONS", "PATCH"],
-  allowedHeaders: ["Content-Type", "Authorization"],
+  allowedHeaders: ["Content-Type", "Authorization", "X-Requested-With"],
+  exposedHeaders: ["Authorization"],
+  optionsSuccessStatus: 200,
   maxAge: 86400, // 24 hours
 };
 
+// Apply CORS middleware
 app.use(cors(corsOptions));
-// Additional CORS headers middleware for extra safety
-app.use((req, res, next) => {
-  const origin = req.headers.origin;
-  if (!origin || allowedOrigins.includes(origin)) {
-    res.header("Access-Control-Allow-Origin", origin || "*");
-    res.header("Access-Control-Allow-Credentials", "true");
-    res.header(
-      "Access-Control-Allow-Methods",
-      "GET,POST,PUT,DELETE,OPTIONS,PATCH"
-    );
-    res.header("Access-Control-Allow-Headers", "Content-Type,Authorization");
-  }
-  next();
-});
+
+// Handle preflight OPTIONS requests explicitly
+app.options("*", cors(corsOptions));
 
 app.use(express.json({ limit: "10mb" }));
 app.use(express.urlencoded({ limit: "10mb", extended: true }));
@@ -66,6 +60,7 @@ const limiter = rateLimit({
   message: "Too many requests from this IP, please try again later",
   standardHeaders: true,
   legacyHeaders: false,
+  skip: (req) => req.method === "OPTIONS", // Skip rate limiting for OPTIONS requests
 });
 
 app.use(limiter);
@@ -185,7 +180,14 @@ app.use((req, res) => {
 app.use(errorHandler);
 
 const PORT = process.env.PORT || 5000;
-app.listen(PORT, () => {
-  console.log(`Server running on port ${PORT}`);
-  console.log(`Swagger docs available at http://localhost:${PORT}/api-docs`);
-});
+
+// Only listen if not in Vercel serverless environment
+if (process.env.VERCEL !== "1") {
+  app.listen(PORT, () => {
+    console.log(`Server running on port ${PORT}`);
+    console.log(`Swagger docs available at http://localhost:${PORT}/api-docs`);
+  });
+}
+
+// Export for Vercel serverless functions
+export default app;
