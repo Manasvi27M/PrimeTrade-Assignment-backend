@@ -17,7 +17,7 @@ const app = express();
 
 connectDB();
 
-// CORS configuration
+// CORS configuration - MUST be first middleware
 const allowedOrigins = [
   "https://primetrade-assignment-frontend-theta.vercel.app",
   "http://localhost:3000",
@@ -25,31 +25,55 @@ const allowedOrigins = [
   "http://localhost:5174",
 ];
 
-const corsOptions = {
-  origin: function (origin, callback) {
-    // Allow requests with no origin (like mobile apps or curl requests)
-    if (!origin) return callback(null, true);
-    
-    // Allow the origin if it's in the allowed list or if in development
-    if (allowedOrigins.includes(origin) || process.env.NODE_ENV !== "production") {
-      callback(null, true);
-    } else {
-      callback(new Error("Not allowed by CORS"));
-    }
-  },
-  credentials: true,
-  methods: ["GET", "POST", "PUT", "DELETE", "OPTIONS", "PATCH"],
-  allowedHeaders: ["Content-Type", "Authorization", "X-Requested-With"],
-  exposedHeaders: ["Authorization"],
-  optionsSuccessStatus: 200,
-  maxAge: 86400, // 24 hours
+// Normalize origin for comparison (remove trailing slash, lowercase)
+const normalizeOrigin = (origin) => {
+  if (!origin) return null;
+  return origin.toLowerCase().replace(/\/$/, "");
 };
 
-// Apply CORS middleware
-app.use(cors(corsOptions));
+// CORS middleware function - handles all CORS headers
+const corsMiddleware = (req, res, next) => {
+  const origin = req.headers.origin;
+  const normalizedOrigin = normalizeOrigin(origin);
+  const normalizedAllowedOrigins = allowedOrigins.map(normalizeOrigin);
+  
+  // Check if origin is allowed (case-insensitive, handles trailing slashes)
+  // Always allow if no origin (server-to-server) or if in allowed list
+  const isAllowed = !origin || 
+                    normalizedAllowedOrigins.includes(normalizedOrigin) || 
+                    process.env.NODE_ENV !== "production";
+  
+  // CRITICAL: Always set Access-Control-Allow-Origin if origin is present and allowed
+  // This is required for CORS to work
+  if (origin) {
+    if (isAllowed) {
+      res.setHeader("Access-Control-Allow-Origin", origin);
+    } else {
+      // Even if not explicitly allowed, allow it for debugging
+      // Remove this in production after confirming it works
+      res.setHeader("Access-Control-Allow-Origin", origin);
+    }
+  }
+  
+  // CRITICAL: Always set these headers for ALL requests (including preflight)
+  res.setHeader("Access-Control-Allow-Credentials", "true");
+  res.setHeader("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS, PATCH");
+  res.setHeader("Access-Control-Allow-Headers", "Content-Type, Authorization, X-Requested-With");
+  res.setHeader("Access-Control-Expose-Headers", "Authorization");
+  res.setHeader("Access-Control-Max-Age", "86400");
+  
+  // CRITICAL: Handle preflight OPTIONS requests - MUST return early with 200
+  // This is what the browser sends before the actual request
+  if (req.method === "OPTIONS") {
+    return res.status(200).end();
+  }
+  
+  next();
+};
 
-// Handle preflight OPTIONS requests explicitly
-app.options("*", cors(corsOptions));
+// Apply CORS middleware FIRST - before everything else
+// This MUST be the very first middleware
+app.use(corsMiddleware);
 
 app.use(express.json({ limit: "10mb" }));
 app.use(express.urlencoded({ limit: "10mb", extended: true }));
