@@ -15,72 +15,37 @@ dotenv.config();
 
 const app = express();
 
-// CORS configuration - MUST be before connectDB and everything else
-const allowedOrigins = [
-  "https://vertex-frontend-app.vercel.app",
-  "http://localhost:3000",
-  "http://localhost:5173",
-  "http://localhost:5174",
-];
-
-// ABSOLUTE FIRST: Handle ALL OPTIONS requests immediately
+// ABSOLUTE FIRST: CORS - ALLOW EVERYTHING, NO RESTRICTIONS
+// Handle ALL OPTIONS requests immediately - before anything else
 app.options("*", (req, res) => {
   const origin = req.headers.origin;
-  console.log("OPTIONS request from origin:", origin);
-  
   if (origin) {
     res.setHeader("Access-Control-Allow-Origin", origin);
+  } else {
+    res.setHeader("Access-Control-Allow-Origin", "*");
   }
   res.setHeader("Access-Control-Allow-Credentials", "true");
-  res.setHeader("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS, PATCH");
-  res.setHeader("Access-Control-Allow-Headers", "Content-Type, Authorization, X-Requested-With");
+  res.setHeader("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS, PATCH, HEAD");
+  res.setHeader("Access-Control-Allow-Headers", "Content-Type, Authorization, X-Requested-With, Accept, Origin");
+  res.setHeader("Access-Control-Expose-Headers", "*");
   res.setHeader("Access-Control-Max-Age", "86400");
   return res.status(200).end();
 });
 
-// Use cors package with explicit configuration
-app.use(cors({
-  origin: (origin, callback) => {
-    // Allow requests with no origin (mobile apps, Postman, etc.)
-    if (!origin) {
-      return callback(null, true);
-    }
-    
-    // Always allow the frontend origin
-    if (allowedOrigins.includes(origin)) {
-      return callback(null, true);
-    }
-    
-    // In development, allow all
-    if (process.env.NODE_ENV !== "production") {
-      return callback(null, true);
-    }
-    
-    // In production, still allow for now to ensure it works
-    console.log("CORS: Allowing origin:", origin);
-    return callback(null, true);
-  },
-  credentials: true,
-  methods: ["GET", "POST", "PUT", "DELETE", "OPTIONS", "PATCH"],
-  allowedHeaders: ["Content-Type", "Authorization", "X-Requested-With"],
-  exposedHeaders: ["Authorization"],
-  optionsSuccessStatus: 200,
-  maxAge: 86400,
-}));
-
-// Additional CORS middleware as backup - runs on every request
+// CORS middleware - ALLOW EVERYTHING, NO CHECKS
 app.use((req, res, next) => {
   const origin = req.headers.origin;
-  
   if (origin) {
     res.setHeader("Access-Control-Allow-Origin", origin);
+  } else {
+    res.setHeader("Access-Control-Allow-Origin", "*");
   }
   res.setHeader("Access-Control-Allow-Credentials", "true");
-  res.setHeader("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS, PATCH");
-  res.setHeader("Access-Control-Allow-Headers", "Content-Type, Authorization, X-Requested-With");
-  res.setHeader("Access-Control-Expose-Headers", "Authorization");
+  res.setHeader("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS, PATCH, HEAD");
+  res.setHeader("Access-Control-Allow-Headers", "Content-Type, Authorization, X-Requested-With, Accept, Origin");
+  res.setHeader("Access-Control-Expose-Headers", "*");
   
-  // Handle OPTIONS again as backup
+  // Handle OPTIONS immediately
   if (req.method === "OPTIONS") {
     return res.status(200).end();
   }
@@ -88,21 +53,31 @@ app.use((req, res, next) => {
   next();
 });
 
+// Also use cors package - ALLOW ALL ORIGINS
+app.use(cors({
+  origin: true, // Allow ALL origins
+  credentials: true,
+  methods: ["GET", "POST", "PUT", "DELETE", "OPTIONS", "PATCH", "HEAD"],
+  allowedHeaders: "*",
+  exposedHeaders: "*",
+  optionsSuccessStatus: 200,
+}));
+
 connectDB();
 
 app.use(express.json({ limit: "10mb" }));
 app.use(express.urlencoded({ limit: "10mb", extended: true }));
 
-const limiter = rateLimit({
-  windowMs: 60 * 1000, // 1 minute
-  max: 100, // 100 requests per minute
-  message: "Too many requests from this IP, please try again later",
-  standardHeaders: true,
-  legacyHeaders: false,
-  skip: (req) => req.method === "OPTIONS", // Skip rate limiting for OPTIONS requests
-});
-
-app.use(limiter);
+// Rate limiting DISABLED - no restrictions
+// const limiter = rateLimit({
+//   windowMs: 60 * 1000,
+//   max: 100,
+//   message: "Too many requests from this IP, please try again later",
+//   standardHeaders: true,
+//   legacyHeaders: false,
+//   skip: (req) => req.method === "OPTIONS",
+// });
+// app.use(limiter);
 
 const swaggerOptions = {
   definition: {
@@ -199,26 +174,7 @@ const swaggerOptions = {
 const swaggerSpec = swaggerJsdoc(swaggerOptions);
 app.use("/api-docs", swaggerUi.serve, swaggerUi.setup(swaggerSpec));
 
-// Explicit OPTIONS handlers for all API routes
-const handleOptions = (req, res) => {
-  const origin = req.headers.origin;
-  if (origin) {
-    res.setHeader("Access-Control-Allow-Origin", origin);
-  }
-  res.setHeader("Access-Control-Allow-Credentials", "true");
-  res.setHeader("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS, PATCH");
-  res.setHeader("Access-Control-Allow-Headers", "Content-Type, Authorization, X-Requested-With");
-  res.status(200).end();
-};
-
-app.options("/api/auth", handleOptions);
-app.options("/api/auth/*", handleOptions);
-app.options("/api/entities", handleOptions);
-app.options("/api/entities/*", handleOptions);
-app.options("/api/analytics", handleOptions);
-app.options("/api/analytics/*", handleOptions);
-app.options("/api/insights", handleOptions);
-app.options("/api/insights/*", handleOptions);
+// No need for explicit route handlers - app.options("*") handles everything
 
 app.use("/api/auth", authRoutes);
 app.use("/api/entities", entityRoutes);
@@ -230,12 +186,16 @@ app.get("/health", (req, res) => {
 });
 
 app.use((req, res) => {
-  // Ensure CORS headers on 404 responses
+  // CORS headers already set by middleware, but set again to be sure
   const origin = req.headers.origin;
   if (origin) {
     res.setHeader("Access-Control-Allow-Origin", origin);
+  } else {
+    res.setHeader("Access-Control-Allow-Origin", "*");
   }
   res.setHeader("Access-Control-Allow-Credentials", "true");
+  res.setHeader("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS, PATCH, HEAD");
+  res.setHeader("Access-Control-Allow-Headers", "Content-Type, Authorization, X-Requested-With, Accept, Origin");
   
   res.status(404).json({
     success: false,
