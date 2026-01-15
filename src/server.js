@@ -19,7 +19,7 @@ connectDB();
 
 // CORS configuration - MUST be first middleware
 const allowedOrigins = [
-  "https://primetrade-assignment-frontend-theta.vercel.app",
+  "https://vertex-frontend-app.vercel.app",
   "http://localhost:3000",
   "http://localhost:5173",
   "http://localhost:5174",
