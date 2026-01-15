@@ -1,7 +1,5 @@
-"use client"
-
-import  from "../src/server"
+"use client";
 
 export default function SyntheticV0PageForDeployment() {
-  return < />
+  return <div>Welcome to PrimeTrade</div>;
 }
